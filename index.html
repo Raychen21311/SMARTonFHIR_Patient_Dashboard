@@ -25,7 +25,8 @@
     // 啟動 SMART on FHIR OAuth2 授權流程
     FHIR.oauth2.authorize({
         // SMART App 在 FHIR Server 上註冊的 Client ID
-        clientId: "Client_ID",
+        clientId: "cc344727-6f90-496c-94fd-c7829aa9a51d",
+        clientSecret: "79f04b56b33491716c0880af72cdef7d3f0629111421cedd18353651cd313d9e",
 
         // OAuth scope：
         // openid        → 取得使用者身份資訊
@@ -33,9 +34,7 @@
         // patient/*.read→ 允許讀取病患相關 FHIR 資源
         //
         // 注意：
-        // 這裡「沒有使用 launch/patient」
-        // 代表不是從單一病患情境啟動，
-        // 而是要自己做「病患選擇頁面」
+        // 自己做「病患選擇頁面」
         scope: "openid fhirUser patient/*.read",
 
         // OAuth 完成後導向的頁面
