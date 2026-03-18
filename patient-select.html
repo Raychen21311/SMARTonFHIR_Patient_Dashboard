@@ -131,6 +131,28 @@
     try {
 
       // ================================
+        // 🆕 自動身分辨識與跳轉
+        // ================================
+        
+        // 1. 檢查是否已經有選定的病患 ID (通常用於病患登入或 EHR Launch)
+        const patientId = client.getPatientId();
+        
+        // 2. 取得登入者的資訊
+        const idToken = client.state.tokenResponse.id_token;
+        const fhirUser = client.state.tokenResponse.fhirUser || "";
+
+        // 🔥 核心邏輯：如果是病患身分，直接跳轉
+        if (patientId && (fhirUser.includes("Patient") || !fhirUser)) {
+            console.log("偵測為病患身分，自動導向個人儀表板...");
+            sessionStorage.setItem("selected_patient_id", patientId);
+            window.location.href = "overview.html";
+            return; // 結束執行，不顯示下方的病患清單
+        }
+
+        // 如果是醫師 (Practitioner)，則繼續執行原本的「選擇測試病患」清單邏輯
+        console.log("偵測為醫護人員身分，顯示病患選擇清單...");
+
+      // ================================
       // 1️⃣ 取得病患清單
       // ================================
       // 這裡只抓前 20 位測試病患（Demo 用）
