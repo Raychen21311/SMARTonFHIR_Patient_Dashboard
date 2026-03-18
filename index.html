@@ -9,6 +9,9 @@
 <script>
     sessionStorage.clear();
     localStorage.clear();
+    // 取得 URL 參數中的 iss (由 Launcher 提供)
+    const urlParams = new URLSearchParams(window.location.search);
+    const targetIss = urlParams.get('iss') || "https://thas.mohw.gov.tw/v/r4/sim/WzIsIiIsIiIsIkFVVE8iLDAsMCwwLCIiLCIiLCIiLCIiLCIiLCIiLCIiLDAsMSwiIl0/fhir";
 
     FHIR.oauth2.authorize({
         // GitHub 自動替換
@@ -16,9 +19,9 @@
         clientSecret: "79f04b56b33491716c0880af72cdef7d3f0629111421cedd18353651cd313d9e",
     
     // 同時要求 user 權限 (EX：醫療人員調查病患狀況)
-        scope: "launch openid fhirUser user/*.read", 
+        scope: "launch openid fhirUser patient/*.read user/*.read", 
         redirectUri: "https://raychen21311.github.io/SMARTonFHIR_Patient_Dashboard/patient-select.html",
-        iss: "https://thas.mohw.gov.tw/v/r4/sim/WzIsIiIsIiIsIkFVVE8iLDAsMCwwLCIiLCIiLCIiLCIiLCIiLCIiLCIiLDAsMSwiIl0/fhir",
+        iss: targetIss,
         pkce: true
 
     });
