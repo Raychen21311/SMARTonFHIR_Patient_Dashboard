@@ -1,0 +1,27 @@
+name: Deploy SMART on FHIR App
+
+on:
+  push:
+    branches: ["main"] # 當你推送到 main 分支時觸發
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Inject Secrets into index.html
+        run: |
+          # GitHub Secrets
+          sed -i "s/MY_CLIENT_ID_PLACEHOLDER/${{ secrets.FHIR_CLIENT_ID }}/g" index.html
+          sed -i "s/MY_CLIENT_SECRET_PLACEHOLDER/${{ secrets.FHIR_CLIENT_SECRET }}/g" index.html
+
+      - name: Deploy to GitHub Pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: .         # 部署目前的根目錄
+          branch: gh-pages  # 程式碼會被推送到這個分支用來架設網站
