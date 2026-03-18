@@ -7,33 +7,49 @@
 </head>
 <body>
 <script>
+    // 1. 初始化環境：確保每次啟動都是乾淨的狀態，避免舊 Token 殘留
     sessionStorage.clear();
     localStorage.clear();
-    // 取得 URL 參數中的 iss (由 Launcher 提供)
-    // 1. 取得網址參數
-    const urlParams = new URLSearchParams(window.location.search);
-    const isEhrLaunch = urlParams.has('launch');
 
-    // 2. 根據模式設定不同的參數
-    const authConfig = {
+    // 2. 模式偵測：透過 URL 是否包含 'launch' 參數來判斷啟動來源
+    const urlParams = new URLSearchParams(window.location.search);
+    const isEhrLaunch = urlParams.has('launch'); 
+
+    // 3. 設定目標 FHIR Server (THAS 模擬環境)
+    const targetIss = "https://thas.mohw.gov.tw/v/r4/sim/WzIsIiIsIiIsIkFVVE8iLDAsMCwwLCIiLCIiLCIiLCIiLCIiLCIiLCIiLDAsMSwiIl0/fhir";
+
+    // 4. 共用配置：包含 Client ID 與安全性設定 (PKCE)
+    const baseConfig = {
         clientId: "cc344727-6f90-496c-94fd-c7829aa9a51d",
         clientSecret: "79f04b56b33491716c0880af72cdef7d3f0629111421cedd18353651cd313d9e",
-        pkce: true,
-        iss: "https://thas.mohw.gov.tw/v/r4/sim/WzIsIiIsIiIsIkFVVE8iLDAsMCwwLCIiLCIiLCIiLCIiLCIiLCIiLCIiLDAsMSwiIl0/fhir"
+        iss: targetIss,
+        pkce: true
     };
-    if (isEhrLaunch) {
-    // 【User 模式】
-        authConfig.scope = "launch openid fhirUser user/Patient.read user/Observation.read user/Condition.read";
-        authConfig.redirectUri = "https://raychen21311.github.io/SMARTonFHIR_Patient_Dashboard/patient-select.html";
-    } else {
-        // 【Patient 模式】
-        authConfig.scope = "openid fhirUser patient/Patient.read patient/Observation.read patient/Condition.read";
-        // 病人不需要選自己，直接跳轉到儀表板
-        authConfig.redirectUri = "https://raychen21311.github.io/SMARTonFHIR_Patient_Dashboard/overview.html";
-    }
 
-// 3. 執行授權
-    FHIR.oauth2.authorize(authConfig);
+    // 5. 執行分流授權邏輯
+    if (isEhrLaunch) {
+        /**
+         * 【醫護人員模式 / EHR Launch】
+         * - 權限：使用 user/ 前綴，具備檢索多位病患的權限。
+         * - 流程：授權後導向「病患選擇頁面」。
+         */
+        FHIR.oauth2.authorize({
+            ...baseConfig,
+            scope: "launch openid fhirUser user/Patient.read user/Observation.read user/Condition.read user/CarePlan.read",
+            redirectUri: "https://raychen21311.github.io/SMARTonFHIR_Patient_Dashboard/patient-select.html"
+        });
+    } else {
+        /**
+         * 【個人病患模式 / Standalone Launch】
+         * - 權限：鎖定 patient/ 前綴，Token 僅能讀取本人資料，確保安全。
+         * - 流程：授權後直接進入「數據總覽頁」，跳過選擇步驟。
+         */
+        FHIR.oauth2.authorize({
+            ...baseConfig,
+            scope: "openid fhirUser patient/Patient.read patient/Observation.read patient/Condition.read patient/CarePlan.read",
+            redirectUri: "https://raychen21311.github.io/SMARTonFHIR_Patient_Dashboard/overview.html"
+        });
+    }
 </script>
 </body>
 </html>
