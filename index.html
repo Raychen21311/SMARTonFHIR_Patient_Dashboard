@@ -19,7 +19,7 @@
     sessionStorage.clear();
 
     // 清除 localStorage
-    // 在開發與測試階段很重要，確保每次都是「乾淨啟動」
+    // 確保每次都是「乾淨啟動」
     localStorage.clear();
 
     // 啟動 SMART on FHIR OAuth2 授權流程
@@ -30,8 +30,7 @@
         scope: "launch openid fhirUser user/*.read",
 
         // OAuth 完成後導向的頁面
-        // 通常用來顯示病患列表或進行病患選擇
-        redirectUri: "https://raychen21311.github.io/SMARTonFHIR_Patient_Dashboard/overview.html",
+        redirectUri: "https://raychen21311.github.io/SMARTonFHIR_Patient_Dashboard/patient-select.html",
 
         // FHIR Server 的 base URL（Issuer）
         // 這裡使用的是 THAS 模擬用的 R4 FHIR Server
