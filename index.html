@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Launch App</title>
+    <script src="https://cdn.jsdelivr.net/npm/fhirclient/build/fhir-client.js"></script>
+</head>
+<body>
+<script>
+    sessionStorage.clear();
+    localStorage.clear();
+
+    FHIR.oauth2.authorize({
+        // GitHub 自動替換
+        clientId: "",
+        clientSecret: "",
+        
+        scope: "launch openid fhirUser patient/*.read",
+        redirectUri: "https://raychen21311.github.io/SMARTonFHIR_Patient_Dashboard/patient-select.html",
+        iss: "https://thas.mohw.gov.tw/v/r4/sim/WzIsIiIsIiIsIkFVVE8iLDAsMCwwLCIiLCIiLCIiLCIiLCIiLCIiLCIiLDAsMSwiIl0/fhir",
+        pkce: true
+    });
+</script>
+</body>
+</html>

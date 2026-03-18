@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!-- UTF-8 避免中文亂碼 -->
+  <meta charset="UTF-8" />
+
+  <!-- RWD：支援手機 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <title>Patient Health Dashboard (Overview)</title>
+
+  <!-- SMART on FHIR JS SDK：用來取得 OAuth 後的 client / token / request -->
+  <script src="https://cdn.jsdelivr.net/npm/fhirclient/build/fhir-client.js"></script>
+
+  <!-- Chart.js：畫折線圖 -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+
+  <!-- Luxon：處理日期時間（配 Chart.js time scale） -->
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3/build/global/luxon.min.js"></script>
+
+  <!-- Chart.js 的 luxon adapter：讓 x 軸能用 time -->
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1"></script>
+
+  <!-- 你的統一樣式（topbar / card / grid 等） -->
+  <link rel="stylesheet" href="css/theme.css">
+</head>
+
+<body>
+  <div class="page">
+    <!-- Topbar：品牌 + 分頁 + 病患 ID + 重新選擇 -->
+    <div class="topbar">
+      <div class="brand">
+        <div class="brand-badge">PH</div>
+        <div class="brand-title">
+          <div class="t1">SMART on FHIR</div>
+          <div class="t2">Patient Health Dashboard</div>
+        </div>
+      </div>
+
+      <!-- 分頁：保持一致的導覽體驗 -->
+      <div class="tabs">
+        <a class="tab active" href="overview.html">Overview</a>
+        <a class="tab" href="timeline.html">Timeline</a>
+        <a class="tab" href="labs.html">Labs & Reports</a>
+        <a class="tab" href="careplan.html">CarePlan</a>
+        <a class="tab" href="utilization.html">Utilization</a>
+      </div>
+
+      <div class="top-actions">
+        <div class="pill">
+          <span class="dot"></span>
+          <span style="color:var(--muted)">ID:</span>
+          <code id="pId">—</code>
+        </div>
+        <button class="btn" onclick="returnToSelect()">重新選擇病人</button>
+      </div>
+    </div>
+
+    <h1>SMART on FHIR Patient Health Dashboard</h1>
+    <p style="color:var(--muted); font-weight:800">數據趨勢總覽</p>
+
+    <!-- 病患基本資料卡 -->
+    <div class="patient-card">
+      <div class="patient-block">
+        <div class="name" id="pName">讀取中...</div>
+        <div class="meta">
+          ID: <span id="pId_dup">—</span> ｜ 
+          性別: <span id="pGender">—</span> ｜ 
+          生日: <span id="pBirth">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Summary cards：每個指標顯示「最新值 + 日期」 -->
+    <div class="summary-grid">
+      <div class="card"><div class="k">血壓</div><div id="cardBP" class="v">—</div><div id="dateBP" class="d">—</div></div>   
+      <div class="card"><div class="k">身高 / 體重</div><div id="cardHW" class="v">—</div><div id="dateHW" class="d">—</div></div>
+      <div class="card"><div class="k">BMI</div><div id="cardBMI" class="v">—</div><div id="dateBMI" class="d">—</div></div>
+      <div class="card"><div class="k">疼痛評分</div><div id="cardPAIN" class="v">—</div><div id="datePAIN" class="d">—</div></div>
+      <div class="card"><div class="k">體溫</div><div id="cardTEMP" class="v">—</div><div id="dateTEMP" class="d">—</div></div>
+      <div class="card"><div class="k">心跳</div><div id="cardHEART" class="v">—</div><div id="dateHEART" class="d">—</div></div>
+    </div>
+
+    <!-- 2x3 圖表格：趨勢視覺化 -->
+    <div class="chart-grid">
+      <div class="chart-card">
+        <div class="chart-title"><strong>血壓趨勢</strong><span>Blood Pressure</span></div>
+        <div class="chart-body"><canvas id="bpChart"></canvas></div>
+      </div>    
+      <div class="chart-card">
+        <div class="chart-title"><strong>體重趨勢</strong><span>Weight</span></div>
+        <div class="chart-body"><canvas id="weightChart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title"><strong>BMI 趨勢</strong><span>BMI</span></div>
+        <div class="chart-body"><canvas id="bmiChart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title"><strong>疼痛評分</strong><span>Pain Score</span></div>
+        <div class="chart-body"><canvas id="painChart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title"><strong>體溫趨勢</strong><span>Temperature</span></div>
+        <div class="chart-body"><canvas id="tempChart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title"><strong>心跳趨勢</strong><span>Heart Rate</span></div>
+        <div class="chart-body"><canvas id="heartChart"></canvas></div>
+      </div>
+
+      <div class="footer">
+        <span>© Patient Health</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================
+    // Chart 實例管理
+    // =========================
+    // 為了避免重畫時 chart 疊在一起，會在 drawChart 前先 destroy
+    let charts = {};
+
+    function returnToSelect() {
+      // 回到病患選擇頁：清除目前選擇的 patientId
+      sessionStorage.removeItem("selected_patient_id");
+      window.location.href = "patient-select.html";
+    }
+
+    // 設定 Summary card 的值與日期
+    function setCard(id, text, dateId, dateText) {
+      if (document.getElementById(id)) document.getElementById(id).textContent = text;
+      if (document.getElementById(dateId)) document.getElementById(dateId).textContent = dateText || "—";
+    }
+
+    // 將 JS Date 格式化成 yyyy-mm-dd
+    function fmtDate(d) {
+      return luxon.DateTime.fromJSDate(d).toFormat("yyyy-LL-dd");
+    }
+
+    // 統一 Chart.js 的 options：時間軸 + legend 位置
+    function getChartOptions() {
+      return {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { type: 'time', time: { unit: 'month' } }
+        },
+        plugins: {
+          legend: { position: 'bottom' }
+        }
+      };
+    }
+
+    // 一般單序列折線圖（體重/BMI/疼痛/體溫/心跳）
+    function drawChart(id, label, data, color) {
+      if (charts[id]) charts[id].destroy();
+      const ctx = document.getElementById(id).getContext('2d');
+      charts[id] = new Chart(ctx, {
+        type: 'line',
+        data: {
+          datasets: [{
+            label: label,
+            data: data,
+            borderColor: color || '#3b82f6',
+            // 使用 hex + alpha（#RRGGBB22）做淡色填滿
+            backgroundColor: (color || '#3b82f6') + '22',
+            fill: true,
+            tension: 0.3,
+            pointRadius: 6
+          }]
+        },
+        options: getChartOptions()
+      });
+    }
+
+    // 讀取某個 LOINC code 的 Observation 序列（回傳趨勢資料 + 最新值）
+    async function fetchSeries(client, patientId, code) {
+      const bundle = await client.request(
+        `Observation?patient=${patientId}&code=${code}&_count=100&_sort=-date`
+      );
+
+      const data = (bundle.entry || [])
+        .map(e => {
+          const res = e.resource;
+          const dtISO = res.effectiveDateTime || res.issued;
+          return { x: luxon.DateTime.fromISO(dtISO).toJSDate(), y: res.valueQuantity?.value };
+        })
+        .filter(d => d.y != null)
+        .sort((a, b) => a.x - b.x);
+
+      return { data, latest: data.length ? data[data.length - 1] : null };
+    }
+
+    // 血壓特殊：同一筆 Observation 裡有 component（收縮壓/舒張壓）
+    async function fetchBloodPressure(client, patientId) {
+      const bundle = await client.request(
+        `Observation?patient=${patientId}&code=55284-4&_count=100&_sort=-date`
+      );
+
+      const sData = [], dData = [];
+      (bundle.entry || []).forEach(e => {
+        const res = e.resource;
+        const dt = luxon.DateTime.fromISO(res.effectiveDateTime || res.issued).toJSDate();
+
+        let s = null, d = null;
+        res.component?.forEach(c => {
+          // 8480-6 = Systolic
+          if (c.code.coding[0].code === "8480-6") s = c.valueQuantity.value;
+          // 8462-4 = Diastolic
+          if (c.code.coding[0].code === "8462-4") d = c.valueQuantity.value;
+        });
+
+        // 只有兩個值都存在才納入圖表
+        if (s != null && d != null) {
+          sData.push({ x: dt, y: s });
+          dData.push({ x: dt, y: d });
+        }
+      });
+
+      sData.sort((a, b) => a.x - b.x);
+      dData.sort((a, b) => a.x - b.x);
+
+      return { sData, dData };
+    }
+
+    // =========================
+    // 主流程
+    // =========================
+    FHIR.oauth2.ready().then(async (client) => {
+      // 1) 取得病患 ID：
+      //    - 優先從 patient-select.html 存的 sessionStorage 拿
+      //    - 若使用 launch/patient 情境，才從 client.patient 取
+      let patientId = sessionStorage.getItem("selected_patient_id");
+      if (!patientId && client.patient && client.patient.id) {
+        patientId = client.patient.id;
+      }
+      if (!patientId) throw new Error("找不到病患 ID，請先重新選擇病人。");
+
+      // 2) 讀取病患基本資料
+      const patient = await client.request(`Patient/${patientId}`);
+
+      const name = patient.name
+        ? (patient.name[0].text ||
+           `${patient.name[0].prefix || ''} ${patient.name[0].family || ''} ${patient.name[0].given ? patient.name[0].given.join(" ") : ''}`.trim())
+        : "未知姓名";
+
+      document.getElementById("pName").textContent = name;
+      document.getElementById("pId").textContent = patientId;
+      document.getElementById("pId_dup").textContent = patientId;
+      document.getElementById("pGender").textContent = patient.gender || "—";
+      document.getElementById("pBirth").textContent = patient.birthDate || "—";
+
+      // 3) 血壓：雙序列圖（收縮/舒張）
+      const bp = await fetchBloodPressure(client, patientId);
+      if (bp.sData.length) {
+        const lastS = bp.sData[bp.sData.length - 1];
+        const lastD = bp.dData[bp.dData.length - 1];
+
+        setCard("cardBP", `${lastS.y.toFixed(0)}/${lastD.y.toFixed(0)}`, "dateBP", fmtDate(lastS.x));
+
+        const bpCtx = document.getElementById("bpChart").getContext('2d');
+        charts["bpChart"] = new Chart(bpCtx, {
+          type: 'line',
+          data: {
+            datasets: [
+              { label: '收縮壓', data: bp.sData, borderColor: '#ef4444', tension: 0.3 },
+              { label: '舒張壓', data: bp.dData, borderColor: '#3b82f6', tension: 0.3 }
+            ]
+          },
+          options: getChartOptions()
+        });
+      } else {
+        // 沒血壓資料也不要卡住其他圖表
+        setCard("cardBP", "_", "dateBP", "—");
+      }
+
+      // 4) 身高/體重（兩個 code 分開抓）
+      const height = await fetchSeries(client, patientId, "8302-2");   // body height
+      const weight = await fetchSeries(client, patientId, "29463-7");  // body weight
+
+      drawChart("weightChart", "體重 (kg)", weight.data, "#f59e0b");
+
+      if (height.latest && weight.latest) {
+        const h = Math.round(height.latest.y);
+        const w = Math.round(weight.latest.y);
+
+        // 取兩者較新的日期，較符合臨床「最近一次量測」概念
+        const latestDate = new Date(height.latest.x) > new Date(weight.latest.x)
+          ? height.latest.x
+          : weight.latest.x;
+
+        setCard("cardHW", `${h} / ${w}`, "dateHW", `cm/kg ${fmtDate(latestDate)}`);
+      } else {
+        setCard("cardHW", "_", "dateHW", "—");
+      }
+
+      // 5) BMI
+      const bmi = await fetchSeries(client, patientId, "39156-5");
+      drawChart("bmiChart", "BMI", bmi.data, "#10b981");
+      if (bmi.latest) setCard("cardBMI", bmi.latest.y.toFixed(1), "dateBMI", fmtDate(bmi.latest.x));
+      else setCard("cardBMI", "_", "dateBMI", "—");
+
+      // 6) 疼痛評分
+      const pain = await fetchSeries(client, patientId, "72514-3");
+      drawChart("painChart", "疼痛評分", pain.data, "#8b5cf6");
+      if (pain.latest) setCard("cardPAIN", pain.latest.y.toFixed(0) + " / 10", "datePAIN", fmtDate(pain.latest.x));
+      else setCard("cardPAIN", "_", "datePAIN", "—");
+
+      // 7) 體溫
+      const temp = await fetchSeries(client, patientId, "8310-5");
+      drawChart("tempChart", "體溫 (°C)", temp.data, "#3b82f6");
+      if (temp.latest) setCard("cardTEMP", temp.latest.y + " °C", "dateTEMP", fmtDate(temp.latest.x));
+      else setCard("cardTEMP", "_", "dateTEMP", "—");
+
+      // 8) 心跳
+      const heart = await fetchSeries(client, patientId, "8867-4");
+      drawChart("heartChart", "心跳 (bpm)", heart.data, "#ef4444");
+      if (heart.latest) setCard("cardHEART", heart.latest.y + " bpm", "dateHEART", fmtDate(heart.latest.x));
+      else setCard("cardHEART", "_", "dateHEART", "—");
+
+    }).catch(err => {
+      // ❗避免再呼叫不存在的 setText/showDebug，否則會讓錯誤被「二次錯誤」蓋掉
+      console.error(err);
+      const msg = `請由 launch.html 啟動或重新選擇病人。${err.message ? " (" + err.message + ")" : ""}`;
+      const nameEl = document.getElementById("pName");
+      if (nameEl) nameEl.textContent = msg;
+      // 也可順便把卡片清成「無法讀取」
+      setCard("cardBP", "—", "dateBP", "—");
+      setCard("cardHW", "—", "dateHW", "—");
+      setCard("cardBMI", "—", "dateBMI", "—");
+      setCard("cardPAIN", "—", "datePAIN", "—");
+      setCard("cardTEMP", "—", "dateTEMP", "—");
+      setCard("cardHEART", "—", "dateHEART", "—");
+    });
+  </script>
+</body>
+</html>
+

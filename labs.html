@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!-- UTF-8：避免中文亂碼 -->
+  <meta charset="UTF-8" />
+  <!-- RWD -->
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Labs & Reports</title>
+
+  <!-- SMART on FHIR SDK：OAuth ready + client.request -->
+  <script src="https://cdn.jsdelivr.net/npm/fhirclient/build/fhir-client.js"></script>
+
+  <!-- Chart.js：畫趨勢 -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+
+  <!-- Luxon + adapter：時間軸用 -->
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3/build/global/luxon.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1"></script>
+
+  <link rel="stylesheet" href="css/theme.css">
+</head>
+
+<body>
+  <div class="page">
+    <!-- Topbar：一致導覽 -->
+    <div class="topbar">
+      <div class="brand">
+        <div class="brand-badge">PH</div>
+        <div class="brand-title">
+          <div class="t1">SMART on FHIR</div>
+          <div class="t2">Patient Health Dashboard</div>
+        </div>
+      </div>
+      <div class="tabs">
+        <a class="tab" href="overview.html">Overview</a>
+        <a class="tab" href="timeline.html">Timeline</a>
+        <a class="tab active" href="labs.html">Labs & Reports</a>
+        <a class="tab" href="careplan.html">CarePlan</a>
+        <a class="tab" href="utilization.html">Utilization</a>
+      </div>
+      <div class="top-actions">
+        <div class="pill">
+          <span class="dot"></span>
+          <span style="color:var(--muted)">ID:</span>
+          <code id="pId">—</code>
+        </div>
+        <button class="btn" onclick="returnToSelect()">重新選擇病人</button>
+      </div>
+    </div>
+
+    <h1>Labs & Reports</h1>
+    <p id="loadHint" style="color:var(--muted); font-weight:800">臨床檢驗與診斷報告分析</p>
+
+    <!-- 病人基本資料卡 -->
+    <div class="patient-card">
+      <div class="patient-block">
+        <div class="name" id="pName">讀取中...</div>
+        <div class="meta">
+          ID: <span id="pId_dup">—</span> ｜ 性別: <span id="pGender">—</span> ｜ 生日: <span id="pBirth">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="queryInfo" style="display:none"></div>
+
+    <!-- Summary cards：快速掌握資料量 -->
+    <div class="summary-grid">
+      <div class="card"><div class="k">檢驗總數</div><div id="cardLabCount" class="v">—</div><div id="cardLabHint" class="d">—</div></div>
+      <div class="card"><div class="k">項目種類</div><div id="cardUnique" class="v">—</div><div id="cardUniqueHint" class="d">—</div></div>
+      <div class="card"><div class="k">診斷報告</div><div id="cardRptCount" class="v">—</div><div id="cardRptHint" class="d">—</div></div>
+    </div>
+
+    <!-- 左側：選擇檢驗項目 + 最新值/參考值；右側：趨勢圖 -->
+    <div class="two-col">
+      <div class="panel">
+        <div style="font-weight: 950; margin-bottom: 15px;">檢驗項目篩選</div>
+        <select id="labSelect" disabled><option>載入中...</option></select>
+
+        <div class="mini">
+          <div class="box">
+            <div class="k">最近值</div>
+            <div id="latestValue" class="v">—</div>
+            <div id="latestDate" class="d">—</div>
+          </div>
+          <div class="box">
+            <div class="k">參考範圍</div>
+            <div id="refRange" class="v">—</div>
+            <div id="refRangeNote" class="d">—</div>
+          </div>
+        </div>
+
+        <!-- 參考值判斷：正常/偏高/偏低 -->
+        <div id="rangeStatus" style="display:none; margin-top:15px; padding:10px; border-radius:10px; font-weight:900; text-align:center;">
+          <span id="rangeText"></span>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">
+          <span id="chartTitle">趨勢分析</span>
+          <span style="font-size:12px; color:var(--muted)">Trend Analysis</span>
+        </div>
+        <div class="chart-body"><canvas id="labChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- DiagnosticReport 列表 -->
+    <div class="panel" style="margin-top: 16px;">
+      <div style="font-weight: 950; margin-bottom: 12px; font-size: 18px;">DiagnosticReport 報告列表</div>
+      <div id="reportList" class="list"></div>
+    </div>
+
+    <pre id="debug"></pre>
+  </div>
+
+  <div class="footer">
+    <span>© Patient Health</span>
+  </div>
+
+  <script>
+    // =========================
+    // 基礎工具
+    // =========================
+    let labChartInstance = null;
+
+    function returnToSelect() {
+      sessionStorage.removeItem("selected_patient_id");
+      window.location.href = "patient-select.html";
+    }
+
+    function fmtDateISO(iso){
+      if(!iso) return "—";
+      try { return luxon.DateTime.fromISO(iso).toFormat("yyyy-LL-dd"); }
+      catch { return String(iso); }
+    }
+
+    function safeStr(v){ return (v == null || v === "") ? "—" : String(v); }
+
+    function showDebug(obj){
+      const pre = document.getElementById("debug");
+      if(!pre) return;
+      pre.style.display = "block";
+      pre.textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
+    }
+
+    function setText(id, text){
+      const el = document.getElementById(id);
+      if(el) el.textContent = text;
+    }
+
+    // =========================
+    // FHIR Bundle 分頁抓取（link[next]）
+    // =========================
+    async function fetchAll(client, initialUrl, maxPages = 20){
+      const out = [];
+      let bundle = await client.request(initialUrl);
+      let pages = 0;
+
+      while(bundle){
+        (bundle.entry ?? []).forEach(e => { if(e.resource) out.push(e.resource); });
+        const nextUrl = (bundle.link ?? []).find(l => l.relation === "next")?.url;
+        if(!nextUrl || ++pages >= maxPages) break;
+        bundle = await client.request(nextUrl);
+      }
+      return out;
+    }
+
+    // =========================
+    // Lab item 分群：用 Observation.code 當 key
+    // =========================
+    function codeLabelFromObservation(obs){
+      const c = obs?.code;
+      const text = c?.text || c?.coding?.[0]?.display || c?.coding?.[0]?.code || "Unknown";
+      const coding = c?.coding?.[0];
+      const key = (coding?.system ? coding.system + "|" : "") + (coding?.code ?? text);
+      return { key, best: text, code: coding?.code ?? "", system: coding?.system ?? "" };
+    }
+
+    // 量測日期：優先 effectiveDateTime，其次 Period/issued
+    function pickEffectiveISO(obs){
+      return obs?.effectiveDateTime || obs?.effectivePeriod?.end || obs?.issued || null;
+    }
+
+    // 只吃數值型的 lab（valueQuantity.value 是 number）
+    function getNumericValue(obs){
+      const vq = obs?.valueQuantity;
+      return (vq && typeof vq.value === "number") ? { value: vq.value, unit: vq.unit || vq.code || "" } : null;
+    }
+
+    // 參考範圍（可能沒有）
+    function summarizeRefRange(obs){
+      const rr = obs?.referenceRange?.[0];
+      return { low: rr?.low?.value, high: rr?.high?.value, unit: rr?.low?.unit || rr?.high?.unit || "", text: rr?.text };
+    }
+
+    // 根據最近值與參考值顯示：正常/偏低/偏高
+    function buildRangeStatus(latest, rr){
+      const box = document.getElementById("rangeStatus");
+      const t = document.getElementById("rangeText");
+      if(!box || !t) return;
+
+      box.classList.remove("ok","warn","bad");
+
+      if(!latest || (!rr || (rr.low == null && rr.high == null))){
+        box.style.display = "none";
+        return;
+      }
+
+      const val = latest.value;
+      let status = "within";
+      if(rr.low != null && val < rr.low) status = "low";
+      else if(rr.high != null && val > rr.high) status = "high";
+
+      box.style.display = "inline-flex";
+      if(status === "within"){ box.classList.add("ok"); t.textContent = "在參考區間內"; }
+      else if(status === "low"){ box.classList.add("warn"); t.textContent = "低於參考下限"; }
+      else { box.classList.add("bad"); t.textContent = "高於參考上限"; }
+    }
+
+    // 畫趨勢圖 + 參考值虛線（low/high）
+    function drawLabChart(series, rr, label){
+      const canvas = document.getElementById("labChart");
+      if(!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if(labChartInstance) labChartInstance.destroy();
+
+      const datasets = [{
+        label: label || "Lab",
+        data: series,
+        tension: 0.25,
+        borderColor: '#3b82f6',
+        backgroundColor: '#3b82f6'
+      }];
+
+      // 參考值線：同一個時間軸上畫水平線
+      if(rr && (rr.low != null || rr.high != null)){
+        if(rr.low != null) datasets.push({
+          label: "Low",
+          data: series.map(p => ({ x: p.x, y: rr.low })),
+          borderDash: [5,5],
+          pointRadius: 0,
+          borderColor: '#94a3b8',
+          fill: false
+        });
+        if(rr.high != null) datasets.push({
+          label: "High",
+          data: series.map(p => ({ x: p.x, y: rr.high })),
+          borderDash: [5,5],
+          pointRadius: 0,
+          borderColor: '#94a3b8',
+          fill: false
+        });
+      }
+
+      labChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: { datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: { x: { type: 'time', time: { unit: 'month' } } }
+        }
+      });
+    }
+
+    // DiagnosticReport 列表 item
+    function renderReportCard(r){
+      const title = r?.code?.text || r?.code?.coding?.[0]?.display || "DiagnosticReport";
+      const dt = r?.effectiveDateTime || r?.issued;
+      const div = document.createElement("div");
+      div.className = "item";
+      div.innerHTML = `
+        <div class="title">${title}</div>
+        <div class="meta">日期：${fmtDateISO(dt)}</div>
+        <div class="meta">狀態：${safeStr(r?.status)}</div>
+      `;
+      return div;
+    }
+
+    // 抓 labs + 產生 dropdown 選項
+    async function loadLabs(client, patientId){
+      // Observation?category=laboratory：抓檢驗類資料（這裡只取 200/頁再 paging）
+      const obs = await fetchAll(client, `Observation?patient=${patientId}&category=laboratory&_count=200&_sort=-date`);
+
+      setText("cardLabCount", String(obs.length));
+      setText("cardLabHint", obs.length ? "包含 laboratory Observation" : "此病人無 laboratory Observation");
+
+      // 以 code 分群，只保留數值型檢驗（可畫趨勢）
+      const map = new Map();
+      obs.forEach(o => {
+        const nv = getNumericValue(o);
+        if(!nv) return;
+
+        const cl = codeLabelFromObservation(o);
+        if(!map.has(cl.key)) map.set(cl.key, { key: cl.key, label: cl.best, count: 0 });
+        map.get(cl.key).count++;
+      });
+
+      const tests = Array.from(map.values()).sort((a,b)=>b.count-a.count);
+
+      // Summary：項目種類
+      setText("cardUnique", String(tests.length));
+      setText("cardUniqueHint", tests.length ? `Top: ${tests[0].label} (${tests[0].count}筆)` : "無可畫趨勢的數值檢驗");
+
+      // Dropdown
+      const sel = document.getElementById("labSelect");
+      sel.innerHTML = "";
+      if(!tests.length){
+        sel.appendChild(new Option("無數據"));
+        sel.disabled = true;
+        return { tests: [], obs };
+      }
+
+      tests.forEach(t => sel.appendChild(new Option(`${t.label} (${t.count}筆)`, t.key)));
+      sel.disabled = false;
+      return { tests, obs };
+    }
+
+    // =========================
+    // 主流程
+    // =========================
+    FHIR.oauth2.ready().then(async (client) => {
+      // ✅ 安全取得 patientId（避免 client.patient 不存在就噴錯）
+      let patientId = sessionStorage.getItem("selected_patient_id");
+      if(!patientId && client.patient && client.patient.id) patientId = client.patient.id;
+      if (!patientId) throw new Error("找不到病患 ID，請先重新選擇病人。");
+
+      // 讀取病人基本資料
+      const patient = await client.request(`Patient/${patientId}`);
+      const name = patient.name
+        ? (patient.name[0].text || `${patient.name[0].prefix || ''} ${patient.name[0].family || ''} ${patient.name[0].given ? patient.name[0].given.join(" ") : ''}`.trim())
+        : "未知姓名";
+
+      setText("pName", name);
+      setText("pId", patientId);
+      setText("pId_dup", patientId);
+      setText("pGender", patient.gender || "—");
+      setText("pBirth", patient.birthDate || "—");
+
+      // 1) labs dropdown + summary
+      const { tests, obs } = await loadLabs(client, patientId);
+      const sel = document.getElementById("labSelect");
+
+      // 2) 當選擇某檢驗項目 → 畫趨勢 + 最新值 + 參考範圍
+      const render = () => {
+        const chosen = tests.find(t => t.key === sel.value);
+        if(!chosen) return;
+
+        // 篩該 code 的所有 Observation
+        const filtered = obs.filter(o => codeLabelFromObservation(o).key === chosen.key);
+
+        // 建立 (x,y) series：需要「有日期」+「數值」
+        const pts = filtered
+          .map(o => {
+            const iso = pickEffectiveISO(o);
+            const nv = getNumericValue(o);
+            if(!iso || !nv) return null;
+            const d = new Date(iso);
+            if(isNaN(d)) return null;
+            return { x: d, y: nv.value };
+          })
+          .filter(Boolean)
+          .sort((a,b)=>a.x-b.x);
+
+        // ✅ 最新值：用 pts 最後一筆（才是真正 latest）
+        const latestPoint = pts.length ? pts[pts.length - 1] : null;
+
+        // 參考範圍：用「最接近最新的一筆」較合理（這裡簡化：取 filtered 內日期最新那筆）
+        const sortedByDateDesc = filtered
+          .map(o => ({ o, iso: pickEffectiveISO(o) }))
+          .filter(x => x.iso)
+          .sort((a,b) => new Date(b.iso) - new Date(a.iso));
+        const latestObs = sortedByDateDesc.length ? sortedByDateDesc[0].o : null;
+
+        const rr = latestObs ? summarizeRefRange(latestObs) : null;
+        const latestVal = latestObs ? getNumericValue(latestObs) : null;
+
+        setText("chartTitle", chosen.label);
+        setText("latestValue", latestVal ? `${latestVal.value} ${latestVal.unit}` : "—");
+        setText("latestDate", latestObs ? fmtDateISO(pickEffectiveISO(latestObs)) : "—");
+
+        setText("refRange", (rr && (rr.low != null || rr.high != null))
+          ? `${rr.low ?? ''} ~ ${rr.high ?? ''} ${rr.unit}`.trim()
+          : "—"
+        );
+
+        // 參考範圍備註（rr.text）
+        setText("refRangeNote", rr?.text ? rr.text : "—");
+
+        buildRangeStatus(latestVal, rr);
+        drawLabChart(pts, rr, chosen.label);
+
+        // 如果 pts 為空，圖會空；你也可以在這裡顯示提示（不強制）
+        if(!pts.length){
+          setText("latestValue", "無可用數值趨勢");
+        }
+      };
+
+      sel.onchange = render;
+      if(tests.length) render();
+
+      // 3) DiagnosticReport：列表 + summary
+      const reports = await fetchAll(client, `DiagnosticReport?patient=${patientId}&_count=50`);
+      setText("cardRptCount", String(reports.length));
+
+      const latestRptISO = reports
+        .map(r => r?.effectiveDateTime || r?.issued)
+        .filter(Boolean)
+        .sort((a,b)=> new Date(b) - new Date(a))[0];
+
+      setText("cardRptHint", reports.length ? `最新：${fmtDateISO(latestRptISO)}` : "此病人無 DiagnosticReport");
+
+      const rList = document.getElementById("reportList");
+      rList.innerHTML = "";
+      reports
+        .sort((a,b)=> new Date((b.effectiveDateTime||b.issued||0)) - new Date((a.effectiveDateTime||a.issued||0)))
+        .slice(0, 10)
+        .forEach(r => rList.appendChild(renderReportCard(r)));
+
+    }).catch(err => {
+      console.error(err);
+      showDebug(err);
+      setText("pName", "發生錯誤: " + (err?.message || String(err)));
+    });
+  </script>
+</body>
+</html>

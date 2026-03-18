@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!-- UTF-8：避免中文亂碼 -->
+  <meta charset="UTF-8" />
+
+  <!-- 手機/平板 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <title>Timeline</title>
+
+  <!-- SMART on FHIR JS SDK：OAuth ready 後取得 client / token / request -->
+  <script src="https://cdn.jsdelivr.net/npm/fhirclient/build/fhir-client.js"></script>
+
+  <!-- Luxon：解析 ISO 日期時間，用來排序/分組顯示 -->
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3/build/global/luxon.min.js"></script>
+
+  <!-- 你統一的 theme（topbar / card / timeline 樣式） -->
+  <link rel="stylesheet" href="css/theme.css">
+</head>
+
+<body>
+  <div class="page">
+    <!-- Topbar：品牌 + 分頁 + 病患ID + 重新選擇 -->
+    <div class="topbar">
+      <div class="brand">
+        <div class="brand-badge">PH</div>
+        <div class="brand-title">
+          <div class="t1">SMART on FHIR</div>
+          <div class="t2">Patient Health Dashboard</div>
+        </div>
+      </div>
+
+      <div class="tabs" role="navigation" aria-label="Pages">
+        <a class="tab" href="overview.html">Overview</a>
+        <a class="tab active" href="timeline.html">Timeline</a>
+        <a class="tab" href="labs.html">Labs & Reports</a>
+        <a class="tab" href="careplan.html">CarePlan</a>
+        <a class="tab" href="utilization.html">Utilization</a>
+      </div>
+
+      <div class="top-actions">
+        <div class="pill" title="目前病人資訊（由 FHIR 載入）">
+          <span class="dot"></span>
+          <span style="color:var(--muted)">ID:</span>
+          <code id="pId">—</code>
+        </div>
+        <button class="btn" onclick="returnToSelect()">重新選擇病人</button>
+      </div>
+    </div>
+
+    <h1>Patient Timeline</h1>
+
+    <!-- 頁面副標 -->
+    <p id="loadHint" style="color:var(--muted); font-weight:800">健康事件時間軸</p>
+
+    <!-- 病人基本資料：讓使用者知道「現在看的病人是誰」 -->
+    <div class="patient-card">
+      <div class="patient-block">
+        <div class="name" id="pName">正在讀取...</div>
+        <div class="meta">
+          ID: <span id="pId_dup">（同上）</span>
+          ｜ 性別: <span id="pGender">—</span>
+          ｜ 生日: <span id="pBirth">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="timeline-wrap">
+      <div class="timeline-head">
+        <div>
+          <div class="h2">Timeline</div>
+          <div class="hint">依日期彙整：Encounter / Condition / Procedure / DiagnosticReport</div>
+        </div>
+
+        <!-- ✅ 狀態文字另外用一個 id，避免 duplicate id 問題 -->
+        <div class="hint" id="timelineStatus">讀取中…</div>
+      </div>
+
+      <!-- 上方統計：給臨床/評審「資料量」的直覺 -->
+      <div class="timeline-summary">
+        <div class="mini-card"><div class="k">Total events</div><div id="sumAll" class="v">—</div></div>
+        <div class="mini-card"><div class="k">Encounters</div><div id="sumEnc" class="v">—</div></div>
+        <div class="mini-card"><div class="k">Conditions</div><div id="sumCon" class="v">—</div></div>
+        <div class="mini-card"><div class="k">Procedures / Reports</div><div id="sumPR" class="v">—</div></div>
+      </div>
+
+      <!-- 時間軸列表：JS 動態渲染 -->
+      <div class="timeline-list" id="timelineList"></div>
+
+      <!-- Debug：錯誤或原始資料（必要時才顯示） -->
+      <pre id="debug"></pre>
+    </div>
+
+    <div class="footer">
+      <span>© Patient Health</span>
+    </div>
+  </div>
+
+  <script>
+    // =========================
+    // 基礎工具：導頁 / DOM / Debug
+    // =========================
+    function returnToSelect() {
+      // 回到病患選擇頁：清掉 patientId，避免舊病人殘留
+      sessionStorage.removeItem("selected_patient_id");
+      window.location.href = "patient-select.html";
+    }
+
+    function setText(id, text) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = text;
+    }
+
+    function showDebug(obj) {
+      const el = document.getElementById("debug");
+      if (!el) return;
+      el.style.display = "block";
+      el.textContent = (typeof obj === "string") ? obj : JSON.stringify(obj, null, 2);
+    }
+
+    // =========================
+    // 時間 / 文字擷取工具
+    // =========================
+    function dtFromISO(iso) {
+      // 盡量把各資源可能出現的日期欄位解析成 JS Date
+      if (!iso) return null;
+      try {
+        const dt = luxon.DateTime.fromISO(iso, { setZone: true });
+        return dt.isValid ? dt.toJSDate() : null;
+      } catch (e) { return null; }
+    }
+
+    function pickFirstCodingText(cc) {
+      // FHIR 常見：text / coding[0].display / code
+      if (!cc) return null;
+      const c0 = cc.coding && cc.coding[0];
+      return cc.text || c0?.display || c0?.code || null;
+    }
+
+    // =========================
+    // Bundle 分頁抓取：支援 link[relation=next]
+    // =========================
+    async function requestAll(client, initialUrl, maxPages = 6) {
+      let url = initialUrl;
+      const out = [];
+
+      for (let i = 0; i < maxPages; i++) {
+        const bundle = await client.request(url);
+        (bundle.entry || []).forEach(e => { if (e.resource) out.push(e.resource); });
+
+        // FHIR Bundle pagination：找 next link
+        const next = (bundle.link || []).find(l => l.relation === "next");
+        if (!next || !next.url) break;
+        url = next.url;
+      }
+      return out;
+    }
+
+    // 有些 FHIR 伺服器不支援某些資源的 _sort
+    // 所以先試 withSort，失敗就退回 noSort
+    async function safeRequestAll(client, urlWithSort, urlNoSort) {
+      try {
+        return await requestAll(client, urlWithSort);
+      } catch (e) {
+        return await requestAll(client, urlNoSort);
+      }
+    }
+
+    // =========================
+    // 轉換器：把不同 FHIR 資源統一成 timeline event 格式
+    // event = { date, kind, title, meta, raw }
+    // =========================
+    function encounterToEvent(r) {
+      const d = dtFromISO(r.period?.start) || dtFromISO(r.period?.end) || dtFromISO(r.meta?.lastUpdated);
+      const title = pickFirstCodingText(r.type && r.type[0]) || r.class?.display || r.class?.code || "Encounter";
+      const meta = [
+        r.status ? `status: ${r.status}` : null,
+        r.serviceProvider?.display ? `org: ${r.serviceProvider.display}` : null,
+        r.reasonCode?.[0] ? `reason: ${pickFirstCodingText(r.reasonCode[0])}` : null
+      ].filter(Boolean).join(" · ");
+      return { date: d, kind: "Encounter", title, meta, raw: r };
+    }
+
+    function conditionToEvent(r) {
+      const d = dtFromISO(r.recordedDate) || dtFromISO(r.onsetDateTime) || dtFromISO(r.meta?.lastUpdated);
+      const title = pickFirstCodingText(r.code) || "Condition";
+      const meta = [
+        r.clinicalStatus?.coding?.[0]?.code ? `clinical: ${r.clinicalStatus.coding[0].code}` : null,
+        r.verificationStatus?.coding?.[0]?.code ? `verify: ${r.verificationStatus.coding[0].code}` : null,
+        r.category?.[0] ? `cat: ${pickFirstCodingText(r.category[0])}` : null
+      ].filter(Boolean).join(" · ");
+      return { date: d, kind: "Condition", title, meta, raw: r };
+    }
+
+    function procedureToEvent(r) {
+      const d =
+        dtFromISO(r.performedDateTime) ||
+        dtFromISO(r.performedPeriod?.start) ||
+        dtFromISO(r.performedPeriod?.end) ||
+        dtFromISO(r.meta?.lastUpdated);
+
+      const title = pickFirstCodingText(r.code) || "Procedure";
+      const meta = [
+        r.status ? `status: ${r.status}` : null,
+        r.category ? `cat: ${pickFirstCodingText(r.category)}` : null,
+        r.reasonCode?.[0] ? `reason: ${pickFirstCodingText(r.reasonCode[0])}` : null
+      ].filter(Boolean).join(" · ");
+      return { date: d, kind: "Procedure", title, meta, raw: r };
+    }
+
+    function reportToEvent(r) {
+      const d =
+        dtFromISO(r.effectiveDateTime) ||
+        dtFromISO(r.issued) ||
+        dtFromISO(r.effectivePeriod?.start) ||
+        dtFromISO(r.meta?.lastUpdated);
+
+      const title = pickFirstCodingText(r.code) || "DiagnosticReport";
+      const meta = [
+        r.status ? `status: ${r.status}` : null,
+        r.category?.[0] ? `cat: ${pickFirstCodingText(r.category[0])}` : null
+      ].filter(Boolean).join(" · ");
+      return { date: d, kind: "DiagnosticReport", title, meta, raw: r };
+    }
+
+    // 不同類型事件用不同顏色 dot
+    function kindDotClass(kind) {
+      if (kind === "Encounter") return "";
+      if (kind === "Condition") return "green";
+      if (kind === "Procedure") return "orange";
+      return "pink";
+    }
+
+    function fmtDay(d) {
+      try { return luxon.DateTime.fromJSDate(d).toFormat("yyyy-LL-dd"); }
+      catch (e) { return "Unknown date"; }
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    // =========================
+    // Render：依日期分組，生成 day-card + event
+    // =========================
+    function renderTimeline(events) {
+      const list = document.getElementById("timelineList");
+      list.innerHTML = "";
+
+      const withDate = events.filter(e => e.date instanceof Date && !isNaN(e.date));
+      const noDate = events.filter(e => !(e.date instanceof Date) || isNaN(e.date));
+
+      // 由新到舊
+      withDate.sort((a, b) => b.date - a.date);
+
+      // 依天分組：同一天的事件放一起，臨床上更像「那天發生了什麼」
+      const groups = new Map();
+      withDate.forEach(ev => {
+        const key = fmtDay(ev.date);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(ev);
+      });
+
+      for (const key of groups.keys()) {
+        const evs = groups.get(key);
+
+        const counts = { Encounter: 0, Condition: 0, Procedure: 0, DiagnosticReport: 0 };
+        evs.forEach(e => counts[e.kind] = (counts[e.kind] || 0) + 1);
+
+        const day = document.createElement("div");
+        day.className = "day-card";
+
+        const head = document.createElement("div");
+        head.className = "day-head";
+        head.innerHTML = `
+          <div class="date">${key}</div>
+          <div class="badges">
+            <span class="badge">Encounter ${counts.Encounter || 0}</span>
+            <span class="badge">Condition ${counts.Condition || 0}</span>
+            <span class="badge">Procedure ${counts.Procedure || 0}</span>
+            <span class="badge">Report ${counts.DiagnosticReport || 0}</span>
+          </div>
+        `;
+
+        const body = document.createElement("div");
+        body.className = "events";
+
+        evs.forEach(ev => {
+          const item = document.createElement("div");
+          item.className = "event";
+          item.innerHTML = `
+            <div class="dot ${kindDotClass(ev.kind)}"></div>
+            <div class="main">
+              <div class="title">${ev.kind}: ${escapeHtml(ev.title || "")}</div>
+              <div class="meta">${escapeHtml(ev.meta || "")}</div>
+              <!-- details：debug/展示用，可讓評審看到「有接到 FHIR raw data」 -->
+              <details class="more">
+                <summary>details</summary>
+                <div class="kv">${escapeHtml(JSON.stringify(ev.raw, null, 2))}</div>
+              </details>
+            </div>
+          `;
+          body.appendChild(item);
+        });
+
+        day.appendChild(head);
+        day.appendChild(body);
+        list.appendChild(day);
+      }
+
+      // 有事件但都抓不到日期 → 顯示提示
+      if (!withDate.length && noDate.length) {
+        const warn = document.createElement("div");
+        warn.className = "day-card";
+        warn.innerHTML = `
+          <div class="day-head">
+            <div class="date">No usable dates</div>
+            <div class="badges"><span class="badge gray">${noDate.length} events</span></div>
+          </div>`;
+        list.appendChild(warn);
+      }
+
+      // 完全沒有事件 → 空狀態
+      if (!events.length) {
+        const empty = document.createElement("div");
+        empty.className = "day-card";
+        empty.innerHTML = `
+          <div class="day-head">
+            <div class="date">No timeline data</div>
+            <div class="badges"><span class="badge gray">0</span></div>
+          </div>
+          <div class="events">
+            <div class="event">
+              <div class="dot"></div>
+              <div class="main">
+                <div class="title">此病人目前沒有 Encounter / Condition / Procedure / DiagnosticReport</div>
+                <div class="meta">（或伺服器限制查詢 / 權限不足）</div>
+              </div>
+            </div>
+          </div>`;
+        list.appendChild(empty);
+      }
+    }
+
+    // =========================
+    // 主流程：取得 patientId → 抓四類資源 → 統一成 events → render
+    // =========================
+    FHIR.oauth2.ready().then(async (client) => {
+      // 1) 病患 ID：優先從 patient-select.html 存的 sessionStorage 拿
+      let patientId = sessionStorage.getItem("selected_patient_id");
+      if (!patientId && client.patient && client.patient.id) patientId = client.patient.id;
+      if (!patientId) throw new Error("找不到病患 ID，請先重新選擇病人。");
+
+      // 2) 基本資料（上方 patient-card）
+      const patient = await client.request(`Patient/${patientId}`);
+      const name = patient.name
+        ? (patient.name[0].text ||
+           `${patient.name[0].prefix || ''} ${patient.name[0].family || ''} ${patient.name[0].given ? patient.name[0].given.join(" ") : ''}`.trim())
+        : "未知姓名";
+
+      setText("pName", name);
+      setText("pId", patientId);
+      setText("pId_dup", patientId);
+      setText("pGender", patient.gender ?? "未知");
+      setText("pBirth", patient.birthDate ?? "未知");
+
+      // 3) 抓四類資源：用 Promise.all 平行加速
+      setText("timelineStatus", "正在抓取醫療紀錄...");
+
+      const [encs, conds, procs, reports] = await Promise.all([
+        safeRequestAll(client,
+          `Encounter?patient=${patientId}&_sort=-date`,
+          `Encounter?patient=${patientId}`
+        ),
+        safeRequestAll(client,
+          `Condition?patient=${patientId}&_sort=-date`,
+          `Condition?patient=${patientId}`
+        ),
+        safeRequestAll(client,
+          `Procedure?patient=${patientId}&_sort=-date`,
+          `Procedure?patient=${patientId}`
+        ),
+        safeRequestAll(client,
+          `DiagnosticReport?patient=${patientId}&_sort=-date`,
+          `DiagnosticReport?patient=${patientId}`
+        )
+      ]);
+
+      // 4) 統一成 timeline events
+      const events = [
+        ...encs.map(encounterToEvent),
+        ...conds.map(conditionToEvent),
+        ...procs.map(procedureToEvent),
+        ...reports.map(reportToEvent)
+      ];
+
+      // 5) 更新統計卡片
+      setText("sumEnc", String(encs.length));
+      setText("sumCon", String(conds.length));
+      setText("sumPR", String(procs.length + reports.length));
+      setText("sumAll", String(events.length));
+      setText("timelineStatus", `完成：共載入 ${events.length} 筆事件`);
+
+      // 6) Render
+      renderTimeline(events);
+
+    }).catch(err => {
+      console.error(err);
+      setText("pName", "發生錯誤");
+      setText("timelineStatus", "錯誤: " + (err?.message || String(err)));
+      showDebug(String(err));
+    });
+  </script>
+</body>
+</html>
+
