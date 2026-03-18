@@ -231,12 +231,14 @@
       // 1) 取得病患 ID：
       //    - 優先從 patient-select.html 存的 sessionStorage 拿
       //    - 若使用 launch/patient 情境，才從 client.patient 取
-      let patientId = sessionStorage.getItem("selected_patient_id");
-      if (!patientId && client.patient && client.patient.id) {
-        patientId = client.patient.id;
+      let patientId = client.patient.id;
+      if (!patientId) {
+        // 如果 client.patient.id 也是空的，才去拿 sessionStorage
+        patientId = sessionStorage.getItem("selected_patient_id");
       }
-      if (!patientId) throw new Error("找不到病患 ID，請先重新選擇病人。");
-
+      if (!patientId) {
+        throw new Error("找不到病患 ID，請由伺服器選單重新啟動。");
+      }
       // 2) 讀取病患基本資料
       const patient = await client.request(`Patient/${patientId}`);
 
