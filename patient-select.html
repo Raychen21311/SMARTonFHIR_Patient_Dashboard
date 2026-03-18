@@ -1,67 +1,32 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8" />
-    <title>病患資料確認 - Patient Context</title>
-    <script src="https://cdn.jsdelivr.net/npm/fhirclient/build/fhir-client.js"></script>
-    <style>
-        pre { background: #f4f4f4; padding: 15px; border-radius: 8px; overflow: auto; max-height: 300px; }
-        .section { margin-bottom: 20px; }
-        h3 { color: #3b82f6; border-bottom: 2px solid #eee; padding-bottom: 5px; }
-    </style>
-</head>
-<body>
-    <h1>SMART Context 確認</h1>
+<script type="text/javascript">
+FHIR.oauth2.ready().then(function(client) {
     
-    <div class="section">
-        <h3>病患基本資料 (Patient Resource)</h3>
-        <pre id="patient">讀取中...</pre>
-    </div>
+    // 1. 取得伺服器選定的病患 ID
+    const pid = client.patient.id;
+    
+    if (pid) {
+        // 2. 將 ID 存入 sessionStorage，確保 overview.html 讀得到
+        sessionStorage.setItem("selected_patient_id", pid);
 
-    <div class="section">
-        <h3>用藥紀錄 (MedicationRequests)</h3>
-        <pre id="meds">正在查詢藥物資料...</pre>
-    </div>
-
-    <button onclick="window.location.href='overview.html'" style="padding: 10px 20px; cursor: pointer;">
-        進入健康趨勢儀表板
-    </button>
-
-    <script type="text/javascript">
-        FHIR.oauth2.ready().then(function(client) {
-            // 1. 讀取目前的病患資料
-            client.patient.read().then(
-                function(pt) {
-                    document.getElementById("patient").innerText = JSON.stringify(pt, null, 4);
-                },
-                function(error) {
-                    document.getElementById("patient").innerText = error.stack;
-                }
-            );
-
-            // 2. 獲取該選定病患的 MedicationRequest
-            client.request("MedicationRequest?patient=" + client.patient.id, {
-                resolveReferences: ["medicationReference"],
-                graph: true
-            })
-            .then(function(data) {
-                if (!data.entry || !data.entry.length) {
-                    throw new Error("找不到該病患的藥物紀錄。");
-                }
-                return data.entry;
-            })
-            .then(
-                function(meds) {
-                    document.getElementById("meds").innerText = JSON.stringify(meds, null, 4);
-                },
-                function(error) {
-                    document.getElementById("meds").innerText = error.stack;
-                }
-            );
-        }).catch(function(e) {
-            console.error(e);
-            document.getElementById("patient").innerText = "授權失敗或找不到 Context";
+        // 3. 渲染一下資料（選用，方便您肉眼確認）
+        client.patient.read().then(function(pt) {
+            document.getElementById("patient").innerText = JSON.stringify(pt, null, 4);
+            
+            // 4. 🔥 重點：延遲 0.5 秒後自動跳轉到儀表板
+            console.log("已取得病患 Context，準備跳轉...");
+            setTimeout(() => {
+                window.location.href = "overview.html";
+            }, 500); 
         });
-    </script>
-</body>
-</html>
+    } else {
+        document.getElementById("patient").innerText = "錯誤：伺服器未回傳病患 Context。";
+    }
+
+    // 您原本的 MedicationRequest 邏輯可以保留或移除，
+    // 因為現在目標是快速跳轉到 overview.html
+    /* ... 原有的 MedicationRequest 代碼 ... */
+
+}).catch(function(error) {
+    document.getElementById("patient").innerText = error.stack;
+});
+</script>
