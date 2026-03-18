@@ -36,57 +36,28 @@
     // 當 SMART Auth 完成後執行
     FHIR.oauth2.ready().then(function(client) {
         
-        // 1. 取得伺服器端選定的病患 ID
+        // 取得伺服器傳回的選定 ID
         const pid = client.patient.id;
 
-        if (!pid) {
-            document.getElementById("status").innerText = "錯誤：伺服器未回傳病患 Context，請重新由 launch.html 啟動。";
-            return;
-        }
-
-        // 2. 將 ID 存入 sessionStorage 確保 overview.html 讀得到
-        sessionStorage.setItem("selected_patient_id", pid);
-        console.log("已選定病患 ID:", pid);
-
-        // 3. 讀取病患詳細資料
-        client.patient.read().then(
-            function(pt) {
+        if (pid) {
+            // 💡 存入 Session，給後面的頁面用
+            sessionStorage.setItem("selected_patient_id", pid);
+            
+            // 顯示資料並準備跳轉
+            client.patient.read().then(function(pt) {
                 document.getElementById("patient").innerText = JSON.stringify(pt, null, 4);
+                document.getElementById("status").innerText = "已識別病患，正在前往儀表板...";
                 
-                // 資料讀取成功後，準備跳轉
-                document.getElementById("status").innerText = "成功取得資料！即將跳轉至儀表板...";
-                
-                // 延遲 1 秒自動跳轉，讓使用者/開發者能看到確認訊息
                 setTimeout(() => {
                     window.location.href = "overview.html";
-                }, 1000);
-            },
-            function(error) {
-                document.getElementById("patient").innerText = "讀取病患資料失敗: " + error.stack;
-            }
-        );
-
-        // 4. 獲取該選定病患的藥物紀錄 (依據您的範例邏輯)
-        client.request("MedicationRequest?patient=" + pid, {
-            resolveReferences: ["medicationReference"],
-            graph: true
-        })
-        .then(function(data) {
-            if (!data.entry || !data.entry.length) {
-                document.getElementById("meds").innerText = "該病患目前無藥物紀錄。";
-            } else {
-                document.getElementById("meds").innerText = JSON.stringify(data.entry, null, 4);
-            }
-        })
-        .catch(function(error) {
-            document.getElementById("meds").innerText = "藥物查詢出錯: " + error.message;
-        });
-
-    }).catch(function(error) {
-        console.error(error);
-        document.getElementById("status").innerText = "授權失敗或 Session 已過期。";
-        document.getElementById("patient").innerText = error.stack;
-    });
+                }, 800);
+            });
+        } else {
+            // 如果執行到這裡，代表 index.html 的 scope 沒設好或伺服器沒給資料
+            document.getElementById("status").innerText = "錯誤：伺服器未回傳病患 Context。";
+            console.error("No patient context found in client object.");
+        }
+    }).catch(console.error);
 </script>
 
 </body>
