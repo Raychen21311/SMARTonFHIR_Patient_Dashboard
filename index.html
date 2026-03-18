@@ -16,8 +16,7 @@
         clientSecret: "79f04b56b33491716c0880af72cdef7d3f0629111421cedd18353651cd313d9e",
     
     // 同時要求 patient 和 user 權限，涵蓋所有使用者情境
-        scope: "launch openid fhirUser patient/*.read", 
-
+        scope: "launch openid fhirUser user/*.read", 
         redirectUri: "https://raychen21311.github.io/SMARTonFHIR_Patient_Dashboard/patient-select.html",
         iss: "https://thas.mohw.gov.tw/v/r4/sim/WzIsIiIsIiIsIkFVVE8iLDAsMCwwLCIiLCIiLCIiLCIiLCIiLCIiLCIiLDAsMSwiIl0/fhir",
         pkce: true
