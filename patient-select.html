@@ -1,267 +1,75 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <!-- 使用 UTF-8 -->
-  <meta charset="UTF-8" />
-
-  <!-- 頁面標題：病患選擇頁 -->
-  <title>選擇病患 - Patient Selector</title>
-
-  <!-- SMART on FHIR JavaScript SDK
-       用來接 OAuth token、呼叫 FHIR API -->
-  <script src="https://cdn.jsdelivr.net/npm/fhirclient/build/fhir-client.js"></script>
-
-  <!--
-    簡單 UI 樣式
-    設計重點：
-    - 卡片式（card-based）
-    - 強調「資料豐富度」而不是只有病患基本資料
-  -->
-  <style>
-    :root {
-      --bg: #f6f7fb;
-      --brand: #3b82f6;
-      --card: #ffffff;
-      --text: #1f2937;
-    }
-
-    body {
-      font-family: system-ui, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      padding: 40px 20px;
-    }
-
-    .container {
-      max-width: 800px;
-      margin: 0 auto;
-    }
-
-    h1 {
-      text-align: center;
-      font-weight: 900;
-      margin-bottom: 30px;
-    }
-
-    /* 連線與分析中的狀態提示 */
-    .loading {
-      text-align: center;
-      font-weight: 700;
-      color: var(--brand);
-    }
-
-    /* 病患清單使用 grid 排列 */
-    .patient-list {
-      display: grid;
-      gap: 15px;
-    }
-
-    /* 單一病患卡片 */
-    .patient-item {
-      background: var(--card);
-      padding: 20px;
-      border-radius: 16px;
-      border: 1px solid rgba(0,0,0,0.05);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      cursor: pointer;
-      transition: transform 0.2s, border-color 0.2s;
-    }
-
-    /* hover 提示「可點選」 */
-    .patient-item:hover {
-      transform: translateY(-2px);
-      border-color: var(--brand);
-    }
-
-    .info .name {
-      font-size: 18px;
-      font-weight: 800;
-      color: var(--brand);
-    }
-
-    .info .meta {
-      font-size: 14px;
-      color: #6b7280;
-      margin-top: 4px;
-    }
-
-    /* 右側資料量徽章 */
-    .data-badge {
-      background: #eff6ff;
-      color: var(--brand);
-      padding: 8px 16px;
-      border-radius: 999px;
-      font-size: 13px;
-      font-weight: 900;
-      border: 1px solid #dbeafe;
-    }
-
-    /* 資料量多的病患，視覺上特別標示 */
-    .rich-data {
-      background: #dcfce7;
-      color: #16a34a;
-      border-color: #bbf7d0;
-    }
-  </style>
+    <meta charset="UTF-8" />
+    <title>正在導向儀表板...</title>
+    <script src="https://cdn.jsdelivr.net/npm/fhirclient/build/fhir-client.js"></script>
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background: #f6f7fb;
+            color: #1f2937;
+        }
+        .loader-container { text-align: center; }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #3b82f6;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .error-msg { color: #ef4444; display: none; }
+    </style>
 </head>
-
 <body>
 
-<div class="container">
-  <h1>選擇測試病患</h1>
-
-  <!-- 初始狀態：顯示連線與分析中 -->
-  <div id="status" class="loading">
-    正在連線至 FHIR 伺服器並分析病患資料量...
-  </div>
-
-  <!-- 病患卡片動態插入的位置 -->
-  <div id="patientList" class="patient-list"></div>
+<div class="loader-container">
+    <div id="loader" class="spinner"></div>
+    <div id="status">正在取得病患資料...</div>
+    <div id="error" class="error-msg">
+        <h3>無法自動選取病患</h3>
+        <p>請確認您的 Launch Scope 包含 <code>launch/patient</code> 或 <code>patient/*.read</code>。</p>
+    </div>
 </div>
 
 <script>
-  /*
-    OAuth 已完成後，FHIR.oauth2.ready() 才會進來
-    client 內已包含 access token 與 server 設定
-  */
-  FHIR.oauth2.ready().then(async (client) => {
-    try {
+    // 當 OAuth 認證準備完成
+    FHIR.oauth2.ready().then((client) => {
+        // 從 SMART Client Context 取得病患 ID
+        const patientId = client.patient.id;
 
-      // ================================
-      // 1️⃣ 取得病患清單
-      // ================================
-      // 這裡只抓前 20 位測試病患（Demo 用）
-      const bundle = await client.request("Patient?_count=20");
-      const patients = bundle.entry || [];
+        if (patientId) {
+            // 1. 將病患 ID 存入 sessionStorage (維持你原本 overview.html 的讀取邏輯)
+            sessionStorage.setItem("selected_patient_id", patientId);
 
-      const listContainer = document.getElementById("patientList");
-      document.getElementById("status").style.display = "none";
-
-      // ================================
-      // 2️⃣ 定義「資料豐富度檢查清單」
-      // ================================
-      // 這些資源 = overview / index 頁面會用到的資料
-      const checkList = [
-        { key: 'vitals',      label: '生命徵象',   query: 'Observation?category=vital-signs' },
-        { key: 'labs',        label: '實驗室報告', query: 'Observation?category=laboratory' },
-        { key: 'timeline',    label: '診斷',       query: 'Condition' },
-        { key: 'careplan',    label: '照護計畫',   query: 'CarePlan' },
-        { key: 'utilization', label: '就醫紀錄',   query: 'Encounter' }
-      ];
-
-      // ================================
-      // 3️⃣ 逐一處理病患
-      // ================================
-      for (const entry of patients) {
-        const p = entry.resource;
-        const id = p.id;
-
-        // 病患姓名處理：
-        // 優先使用 name.text，否則自己組 prefix / family / given
-        let name = "未知姓名";
-        if (p.name && p.name[0]) {
-          const n = p.name[0];
-          name = n.text || `${n.prefix || ''} ${n.family || ''} ${n.given ? n.given.join(" ") : ''}`.trim();
+            // 2. 立即跳轉至儀表板
+            console.log("偵測到測試 Server 病患 ID:", patientId);
+            window.location.href = "overview.html";
+        } else {
+            // 如果 Client 沒帶病患 ID，顯示錯誤
+            showError("未偵測到選定的病患。請確保您是從測試 Server 的 Launch 流程進入。");
         }
+    }).catch(err => {
+        console.error("SMART Ready Error:", err);
+        showError("連線至 FHIR 伺服器失敗，請重新嘗試登入。");
+    });
 
-        // ================================
-        // 4️⃣ 平行查詢各項資源數量
-        // ================================
-        // 使用 _summary=count → 只拿數量，不拿實體資料，速度快很多
-        const results = await Promise.all(
-          checkList.map(item =>
-            client.request(`${item.query}&patient=${id}&_summary=count`)
-              .catch(() => ({ total: 0 })) // 任一失敗就當作 0
-          )
-        );
-
-        // ================================
-        // 5️⃣ 彙整資料量與標籤
-        // ================================
-        let totalDataCount = 0;
-        let activeTags = [];
-
-        results.forEach((res, index) => {
-          const count = res.total || 0;
-          if (count > 0) {
-            totalDataCount += count;
-            activeTags.push(checkList[index].label);
-          }
-        });
-
-        // 🔥 核心設計邏輯：
-        // 完全沒有臨床資料的病患「不顯示」
-        if (totalDataCount === 0) continue;
-
-        // ================================
-        // 6️⃣ 建立病患卡片 UI
-        // ================================
-        const item = document.createElement("div");
-        item.className = "patient-item";
-
-        // 資料類型標籤（診斷 / 檢驗 / 就醫等）
-        const tagsHtml = activeTags.map(tag =>
-          `<span style="
-            font-size:11px;
-            background:#e0f2fe;
-            color:#0369a1;
-            padding:2px 8px;
-            border-radius:4px;
-            border:1px solid #bae6fd;">
-            ${tag}
-          </span>`
-        ).join("");
-
-        // 根據資料量決定 badge 樣式
-        const badgeClass = totalDataCount > 10
-          ? "data-badge rich-data"
-          : "data-badge";
-
-        item.innerHTML = `
-          <div class="info">
-            <div class="name">${name}</div>
-            <div class="meta">
-              ID: ${id} | ${p.gender || 'N/A'} | ${p.birthDate || ''}
-            </div>
-            <div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:4px;">
-              ${tagsHtml}
-            </div>
-          </div>
-          <div class="${badgeClass}">
-            ${totalDataCount} 筆相關資料
-          </div>
-        `;
-
-        // ================================
-        // 7️⃣ 點擊後選定病患
-        // ================================
-        item.onclick = () => {
-          // 將病患 ID 存入 sessionStorage
-          sessionStorage.setItem("selected_patient_id", id);
-
-          // 進入主儀表板頁面
-          window.location.href = "overview.html";
-        };
-
-        listContainer.appendChild(item);
-      }
-
-      // 若所有病患都被過濾掉
-      if (listContainer.children.length === 0) {
-        document.getElementById("status").style.display = "block";
-        document.getElementById("status").textContent =
-          "找不到具備臨床資料的測試病患。";
-      }
-
-    } catch (err) {
-      console.error(err);
-      document.getElementById("status").textContent =
-        "讀取失敗，請檢查權限或登入狀態。";
+    function showError(msg) {
+        document.getElementById("loader").style.display = "none";
+        document.getElementById("status").style.display = "none";
+        const errDiv = document.getElementById("error");
+        errDiv.style.display = "block";
+        errDiv.querySelector('p').innerText = msg;
     }
-  });
 </script>
+
 </body>
 </html>
