@@ -125,27 +125,131 @@
 <script>
   /*
     OAuth 已完成後，FHIR.oauth2.ready() 才會進來
-    client 內已包含 access token 與 server 設定
+    此頁面僅限【醫護人員模式 (User)】使用
   */
   FHIR.oauth2.ready().then(async (client) => {
-    try {
-        // 檢查當前 Token 是否帶有病人上下文 (代表是 Patient 模式)
-      if (client.patient && client.patient.id) {
-        console.log("偵測為病患模式，自動跳轉至儀表板...");
+    // 0. 安全檢查：如果是病患本人(Patient 模式)誤入，直接導向儀表板
+    if (client.patient && client.patient.id) {
         window.location.href = "overview.html";
         return;
-      }
+    }
 
-        // --- 以下維持原有的「抓取 20 位病患供醫護人員選擇」邏輯 ---
-      const bundle = await client.request("Patient?_count=20");
-       // ... (後續渲染卡片的程式碼)
-        
-    } catch (err) {
-      console.error("讀取清單失敗，可能是權限不足 (需 user 權限)");
-      document.getElementById("status").textContent = "權限不足，無法讀取病患清單。";
+    const searchBtn = document.getElementById("searchBtn");
+    const searchInput = document.getElementById("searchInput");
+    const listContainer = document.getElementById("patientList");
+    const status = document.getElementById("status");
+
+    // ================================
+    // 1️⃣ 定義資源檢查清單 (用於計算資料豐富度)
+    // ================================
+    const checkList = [
+      { key: 'vitals',      label: '生命徵象',   query: 'Observation?category=vital-signs' },
+      { key: 'labs',        label: '實驗室報告', query: 'Observation?category=laboratory' },
+      { key: 'timeline',    label: '診斷',       query: 'Condition' },
+      { key: 'careplan',    label: '照護計畫',   query: 'CarePlan' },
+      { key: 'utilization', label: '就醫紀錄',   query: 'Encounter' }
+    ];
+
+    // ================================
+    // 2️⃣ 核心搜尋與渲染函數
+    // ================================
+    const performSearch = async () => {
+      const keyword = searchInput.value.trim();
+      if (!keyword) return alert("請輸入病患姓名或 ID 進行搜尋");
+
+      // UI 初始化
+      status.style.display = "block";
+      status.textContent = "搜尋中，並分析資料豐富度...";
+      listContainer.innerHTML = "";
+
+      try {
+        // 根據輸入格式決定查詢參數：數字則查 ID，文字則查姓名
+        const fhirQuery = keyword.match(/^\d+$/) ? `Patient?_id=${keyword}` : `Patient?name=${keyword}`;
+        const bundle = await client.request(fhirQuery);
+        const patients = bundle.entry || [];
+
+        if (patients.length === 0) {
+          status.textContent = "找不到符合條件的病患。";
+          return;
+        }
+
+        status.style.display = "none";
+
+        // 逐一處理搜尋到的病患
+        for (const entry of patients) {
+          const p = entry.resource;
+          const id = p.id;
+
+          // 處理姓名顯示
+          let name = "未知姓名";
+          if (p.name && p.name[0]) {
+            const n = p.name[0];
+            name = n.text || `${n.family || ''} ${n.given ? n.given.join(" ") : ''}`.trim();
+          }
+
+          // --- 平行查詢各項資源數量 (_summary=count 提高效能) ---
+          const results = await Promise.all(
+            checkList.map(item =>
+              client.request(`${item.query}&patient=${id}&_summary=count`)
+                .catch(() => ({ total: 0 }))
+            )
+          );
+
+          let totalDataCount = 0;
+          let activeTags = [];
+
+          results.forEach((res, index) => {
+            const count = res.total || 0;
+            if (count > 0) {
+              totalDataCount += count;
+              activeTags.push(checkList[index].label);
+            }
+          });
+
+          // --- 建立卡片 UI ---
+          const item = document.createElement("div");
+          item.className = "patient-item";
+
+          const tagsHtml = activeTags.map(tag => 
+            `<span class="tag">${tag}</span>`
+          ).join("");
+
+          const badgeClass = totalDataCount > 10 ? "data-badge rich-data" : "data-badge";
+
+          item.innerHTML = `
+            <div class="info">
+              <div class="name">${name}</div>
+              <div class="meta">
+                ID: ${id} | ${p.gender || 'N/A'} | ${p.birthDate || ''}
+              </div>
+              <div class="tag-container">${tagsHtml}</div>
+            </div>
+            <div class="${badgeClass}">${totalDataCount} 筆相關資料</div>
+          `;
+
+          // --- 點擊跳轉 ---
+          item.onclick = () => {
+            sessionStorage.setItem("selected_patient_id", id);
+            window.location.href = "overview.html";
+          };
+
+          listContainer.appendChild(item);
+        }
+      } catch (err) {
+        console.error(err);
+        status.textContent = "搜尋發生錯誤，請稍後再試。";
       }
+    };
+
+    // ================================
+    // 3️⃣ 綁定事件：點擊按鈕或按下 Enter
+    // ================================
+    searchBtn.onclick = performSearch;
+    searchInput.onkeypress = (e) => {
+      if (e.key === 'Enter') performSearch();
+    };
+
   });
-  
 </script>
 </body>
 </html>
