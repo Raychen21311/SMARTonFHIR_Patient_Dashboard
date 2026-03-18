@@ -10,21 +10,30 @@
     sessionStorage.clear();
     localStorage.clear();
     // 取得 URL 參數中的 iss (由 Launcher 提供)
+    // 1. 取得網址參數
     const urlParams = new URLSearchParams(window.location.search);
-    const targetIss = urlParams.get('iss') || "https://thas.mohw.gov.tw/v/r4/sim/WzIsIiIsIiIsIkFVVE8iLDAsMCwwLCIiLCIiLCIiLCIiLCIiLCIiLCIiLDAsMSwiIl0/fhir";
+    const isEhrLaunch = urlParams.has('launch');
 
-    FHIR.oauth2.authorize({
-        // GitHub 自動替換
+    // 2. 根據模式設定不同的參數
+    const authConfig = {
         clientId: "cc344727-6f90-496c-94fd-c7829aa9a51d",
         clientSecret: "79f04b56b33491716c0880af72cdef7d3f0629111421cedd18353651cd313d9e",
-    
-    // 同時要求 user 權限 (EX：醫療人員調查病患狀況)
-        scope: "launch openid fhirUser patient/*.read user/*.read", 
-        redirectUri: "https://raychen21311.github.io/SMARTonFHIR_Patient_Dashboard/patient-select.html",
-        iss: targetIss,
-        pkce: true
+        pkce: true,
+        iss: "https://thas.mohw.gov.tw/v/r4/sim/WzIsIiIsIiIsIkFVVE8iLDAsMCwwLCIiLCIiLCIiLCIiLCIiLCIiLCIiLDAsMSwiIl0/fhir"
+    };
+    if (isEhrLaunch) {
+    // 【User 模式】
+        authConfig.scope = "launch openid fhirUser user/Patient.read user/Observation.read user/Condition.read";
+        authConfig.redirectUri = "https://raychen21311.github.io/SMARTonFHIR_Patient_Dashboard/patient-select.html";
+    } else {
+        // 【Patient 模式】
+        authConfig.scope = "openid fhirUser patient/Patient.read patient/Observation.read patient/Condition.read";
+        // 病人不需要選自己，直接跳轉到儀表板
+        authConfig.redirectUri = "https://raychen21311.github.io/SMARTonFHIR_Patient_Dashboard/overview.html";
+    }
 
-    });
+// 3. 執行授權
+    FHIR.oauth2.authorize(authConfig);
 </script>
 </body>
 </html>
