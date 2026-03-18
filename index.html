@@ -1,55 +1,46 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <!-- 設定文件使用 UTF-8 編碼 -->
     <meta charset="UTF-8">
+
+    <!-- 瀏覽器頁籤顯示的標題 -->
     <title>Launch App</title>
+
+    <!-- 載入 SMART on FHIR 官方 JavaScript SDK
+         提供 OAuth2、FHIR client 初始化等功能 -->
     <script src="https://cdn.jsdelivr.net/npm/fhirclient/build/fhir-client.js"></script>
 </head>
+
 <body>
 <script>
-    // 1. 初始化環境：確保每次啟動都是乾淨的狀態，避免舊 Token 殘留
+    // 清除 sessionStorage
+    // 避免前一次登入或舊 token 影響本次啟動
     sessionStorage.clear();
+
+    // 清除 localStorage
+    // 在開發與測試階段很重要，確保每次都是「乾淨啟動」
     localStorage.clear();
 
-    // 2. 模式偵測：透過 URL 是否包含 'launch' 參數來判斷啟動來源
-    const urlParams = new URLSearchParams(window.location.search);
-    const isEhrLaunch = urlParams.has('launch'); 
+    // 啟動 SMART on FHIR OAuth2 授權流程
+    FHIR.oauth2.authorize({
 
-    // 3. 設定目標 FHIR Server (THAS 模擬環境)
-    const targetIss = "https://thas.mohw.gov.tw/v/r4/sim/WzIsIiIsIiIsIkFVVE8iLDAsMCwwLCIiLCIiLCIiLCIiLCIiLCIiLCIiLDAsMSwiIl0/fhir";
-
-    // 4. 共用配置：包含 Client ID 與安全性設定 (PKCE)
-    const baseConfig = {
         clientId: "cc344727-6f90-496c-94fd-c7829aa9a51d",
         clientSecret: "79f04b56b33491716c0880af72cdef7d3f0629111421cedd18353651cd313d9e",
-        iss: targetIss,
-        pkce: true
-    };
+        scope: "launch openid fhirUser patient/*.read",
 
-    // 5. 執行分流授權邏輯
-    if (isEhrLaunch) {
-        /**
-         * 【醫護人員模式 / EHR Launch】
-         * - 權限：使用 user/ 前綴，具備檢索多位病患的權限。
-         * - 流程：授權後導向「病患選擇頁面」。
-         */
-        FHIR.oauth2.authorize({
-            ...baseConfig,
-            scope: "launch openid fhirUser user/Patient.read user/Observation.read user/Condition.read user/CarePlan.read",
-            redirectUri: "https://raychen21311.github.io/SMARTonFHIR_Patient_Dashboard/patient-select.html"
-        });
-    } else {
-        /**
-         * 【個人病患模式 / Standalone Launch】
-         * - 權限：鎖定 patient/ 前綴，Token 僅能讀取本人資料，確保安全。
-         * - 流程：授權後直接進入「數據總覽頁」，跳過選擇步驟。
-         */
-        FHIR.oauth2.authorize({
-            ...baseConfig,
-            scope: "openid fhirUser patient/Patient.read patient/Observation.read patient/Condition.read patient/CarePlan.read",
-            redirectUri: "https://raychen21311.github.io/SMARTonFHIR_Patient_Dashboard/overview.html"
-        });
-    }
+        // OAuth 完成後導向的頁面
+        // 通常用來顯示病患列表或進行病患選擇
+        redirectUri: "https://raychen21311.github.io/SMARTonFHIR_Patient_Dashboard/patient-select.html",
+
+        // FHIR Server 的 base URL（Issuer）
+        // 這裡使用的是 THAS 模擬用的 R4 FHIR Server
+        iss: "https://thas.mohw.gov.tw/v/r4/sim/WzIsIiIsIiIsIkFVVE8iLDAsMCwwLCIiLCIiLCIiLCIiLCIiLCIiLCIiLDAsMSwiIl0/fhir",
+
+        // 啟用 PKCE（Proof Key for Code Exchange）
+        // 提升 OAuth2 安全性
+        pkce: true
+    });
 </script>
 </body>
 </html>
