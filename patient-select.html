@@ -1,32 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <title>Patient Context Confirmation</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/fhirclient/build/fhir-client.js"></script>
+
+    <style>
+        body { font-family: system-ui, sans-serif; padding: 40px; line-height: 1.6; color: #333; }
+        .container { max-width: 800px; margin: 0 auto; }
+        pre { background: #f4f7f6; padding: 15px; border-radius: 8px; overflow: auto; max-height: 250px; border: 1px solid #ddd; }
+        .loader { color: #3b82f6; font-weight: bold; margin-bottom: 20px; }
+        .section { margin-top: 20px; }
+        h2 { color: #1e40af; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>正在確認病患 Context...</h1>
+    <div id="status" class="loader">正在從伺服器取得選定的病患資料，請稍候...</div>
+
+    <div class="section">
+        <h2>病患基本資料</h2>
+        <pre id="patient">正在讀取 Patient Resource...</pre>
+    </div>
+
+    <div class="section">
+        <h2>目前藥物紀錄</h2>
+        <pre id="meds">正在查詢 MedicationRequest...</pre>
+    </div>
+</div>
+
 <script type="text/javascript">
-FHIR.oauth2.ready().then(function(client) {
-    
-    // 1. 取得伺服器選定的病患 ID
-    const pid = client.patient.id;
-    
-    if (pid) {
-        // 2. 將 ID 存入 sessionStorage，確保 overview.html 讀得到
+    // 當 SMART Auth 完成後執行
+    FHIR.oauth2.ready().then(function(client) {
+        
+        // 1. 取得伺服器端選定的病患 ID
+        const pid = client.patient.id;
+
+        if (!pid) {
+            document.getElementById("status").innerText = "錯誤：伺服器未回傳病患 Context，請重新由 launch.html 啟動。";
+            return;
+        }
+
+        // 2. 將 ID 存入 sessionStorage 確保 overview.html 讀得到
         sessionStorage.setItem("selected_patient_id", pid);
+        console.log("已選定病患 ID:", pid);
 
-        // 3. 渲染一下資料（選用，方便您肉眼確認）
-        client.patient.read().then(function(pt) {
-            document.getElementById("patient").innerText = JSON.stringify(pt, null, 4);
-            
-            // 4. 🔥 重點：延遲 0.5 秒後自動跳轉到儀表板
-            console.log("已取得病患 Context，準備跳轉...");
-            setTimeout(() => {
-                window.location.href = "overview.html";
-            }, 500); 
+        // 3. 讀取病患詳細資料
+        client.patient.read().then(
+            function(pt) {
+                document.getElementById("patient").innerText = JSON.stringify(pt, null, 4);
+                
+                // 資料讀取成功後，準備跳轉
+                document.getElementById("status").innerText = "成功取得資料！即將跳轉至儀表板...";
+                
+                // 延遲 1 秒自動跳轉，讓使用者/開發者能看到確認訊息
+                setTimeout(() => {
+                    window.location.href = "overview.html";
+                }, 1000);
+            },
+            function(error) {
+                document.getElementById("patient").innerText = "讀取病患資料失敗: " + error.stack;
+            }
+        );
+
+        // 4. 獲取該選定病患的藥物紀錄 (依據您的範例邏輯)
+        client.request("MedicationRequest?patient=" + pid, {
+            resolveReferences: ["medicationReference"],
+            graph: true
+        })
+        .then(function(data) {
+            if (!data.entry || !data.entry.length) {
+                document.getElementById("meds").innerText = "該病患目前無藥物紀錄。";
+            } else {
+                document.getElementById("meds").innerText = JSON.stringify(data.entry, null, 4);
+            }
+        })
+        .catch(function(error) {
+            document.getElementById("meds").innerText = "藥物查詢出錯: " + error.message;
         });
-    } else {
-        document.getElementById("patient").innerText = "錯誤：伺服器未回傳病患 Context。";
-    }
 
-    // 您原本的 MedicationRequest 邏輯可以保留或移除，
-    // 因為現在目標是快速跳轉到 overview.html
-    /* ... 原有的 MedicationRequest 代碼 ... */
-
-}).catch(function(error) {
-    document.getElementById("patient").innerText = error.stack;
-});
+    }).catch(function(error) {
+        console.error(error);
+        document.getElementById("status").innerText = "授權失敗或 Session 已過期。";
+        document.getElementById("patient").innerText = error.stack;
+    });
 </script>
+
+</body>
+</html>
