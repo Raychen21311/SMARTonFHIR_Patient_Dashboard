@@ -1,7 +1,7 @@
 (() => {
   const MOBILE_BP = 1024;
-  const DELTA = 12;
-  const START_COLLAPSE_AT = 80;
+  const DELTA = 8;
+  const START_COLLAPSE_AT = 48;
 
   const body = document.body;
   const topbar = document.querySelector(".topbar");
@@ -12,6 +12,7 @@
 
   function setCollapsed(collapsed) {
     body.classList.toggle("topbar-collapsed", collapsed);
+    topbar.classList.toggle("is-collapsed", collapsed);
   }
 
   function update() {
