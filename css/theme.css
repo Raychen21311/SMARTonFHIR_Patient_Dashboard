@@ -44,6 +44,26 @@ body{
   max-width: 1320px;
   margin: 0 auto;
   padding: 18px 18px 34px;
+  width: 100%;
+  overflow-x: clip;
+}
+
+img,
+svg,
+canvas{
+  max-width: 100%;
+}
+
+h1{
+  margin: 0 0 8px;
+  font-size: clamp(1.8rem, 3vw, 2.4rem);
+  line-height: 1.1;
+}
+
+code,
+pre,
+.mono{
+  overflow-wrap: anywhere;
 }
 
 /* ====== top bar ====== */
@@ -101,12 +121,16 @@ body{
 .pill .dot{ width: 10px; height: 10px; border-radius: 50%; background: #22c55e; }
 
 /* ====== tabs ====== */
-.tabs{ display:flex; align-items:center; gap: 8px; justify-content:center; padding: 6px 8px; border-radius: 999px; background: rgba(255,255,255,.62); border: 1px solid var(--border); }
-.tab{ text-decoration:none; font-weight: 900; font-size: 12px; color: var(--muted); padding: 10px 12px; border-radius: 999px; transition: 0.2s; }
+.tabs{ display:flex; align-items:center; gap: 8px; justify-content:center; padding: 6px 8px; border-radius: 999px; background: rgba(255,255,255,.62); border: 1px solid var(--border); flex-wrap: wrap; min-width: 0; }
+.tab{ text-decoration:none; font-weight: 900; font-size: 12px; color: var(--muted); padding: 10px 12px; border-radius: 999px; transition: 0.2s; min-width: 0; }
 .tab.active{ background: linear-gradient(135deg, var(--brand), var(--brand2)); color:#fff; }
 
 /* ====== summary cards ====== */
 .summary-grid{ display:grid; grid-template-columns: repeat(6, 1fr); gap: 14px; margin: 16px 0; }
+
+@media (max-width: 1200px){
+  .summary-grid{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 
 @media (max-width: 768px) {
   .topbar {
@@ -115,8 +139,30 @@ body{
     gap: 8px;
   }
 
+  .brand,
+  .tabs,
+  .top-actions,
+  .pill,
+  .btn{
+    width: 100%;
+  }
+
+  .tabs{
+    border-radius: 20px;
+    justify-content: flex-start;
+  }
+
+  .tab{
+    flex: 1 1 calc(50% - 8px);
+    text-align: center;
+  }
+
   .top-actions {
     justify-content: flex-start;
+  }
+
+  .summary-grid{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 .card{
@@ -134,8 +180,9 @@ body{
   border-radius: var(--r20); border: 1px solid var(--border); background: #fff;
   box-shadow: var(--shadow2); min-height: 400px; display: flex; flex-direction: column;
 }
-.chart-title{ padding: 12px 16px; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center;}
-.chart-body{ padding: 16px; flex: 1; position: relative; height: 350px;}
+.chart-title{ padding: 12px 16px; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.chart-title > *{ min-width: 0; }
+.chart-body{ padding: 16px; flex: 1; position: relative; height: 350px; min-width: 0; }
 canvas { width: 100% !important; height: 100% !important; }
 
 .patient-card{ padding: 22px; border-radius: 24px; background: #fff; border: 1px solid var(--border); margin-bottom: 16px; box-shadow: var(--shadow); }
@@ -583,6 +630,7 @@ details.more summary {
 .panel-body {
   padding: 16px;
   flex: 1;
+  min-width: 0;
 }
 
 /* 左側：CarePlan 清單項目 */
@@ -701,6 +749,42 @@ details.more summary {
 .bh .t {
   font-size: 15px;
   font-weight: 900;
+}
+
+.section-head{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.section-head .h2{
+  font-size: 20px;
+  font-weight: 950;
+}
+
+.charts-wrap,
+.timeline-list{
+  min-width: 0;
+}
+
+.empty{
+  padding: 18px;
+  border: 1px dashed var(--border);
+  border-radius: 16px;
+  background: #f8fafc;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.footer{
+  margin-top: 18px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
 }
 
 /* 活動清單 Checkbox 樣式 */
@@ -859,4 +943,172 @@ details.more summary {
   color: var(--brand);
   cursor: pointer;
   font-weight: 700;
+}
+
+@media (max-width: 900px){
+  .timeline-summary{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mini{
+    grid-template-columns: 1fr;
+  }
+
+  .chart-card{
+    min-height: 320px;
+  }
+
+  .chart-body{
+    height: 280px;
+  }
+
+  .patient-card,
+  .panel{
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+}
+
+@media (max-width: 640px){
+  .page{
+    padding: 12px 12px 24px;
+  }
+
+  .topbar{
+    top: 8px;
+    margin: 8px 0 14px;
+    padding: 12px;
+  }
+
+  .brand{
+    min-width: 0;
+  }
+
+  .brand-badge{
+    width: 40px;
+    height: 40px;
+  }
+
+  .brand-title .t1{
+    font-size: 14px;
+  }
+
+  .brand-title .t2{
+    font-size: 11px;
+  }
+
+  .tab{
+    flex-basis: 100%;
+  }
+
+  .btn,
+  .pill{
+    justify-content: center;
+  }
+
+  .summary-grid,
+  .timeline-summary{
+    grid-template-columns: 1fr;
+  }
+
+  .card .v,
+  .mini-card .v{
+    font-size: 20px;
+  }
+
+  .patient-card{
+    padding: 18px;
+  }
+
+  .patient-block .name{
+    font-size: 20px;
+  }
+
+  .patient-block .meta{
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .two-col,
+  .content-grid{
+    gap: 14px;
+    margin-top: 14px;
+  }
+
+  .panel{
+    padding: 16px;
+    border-radius: 18px;
+  }
+
+  .panel-card{
+    min-height: auto;
+  }
+
+  .panel-title,
+  .day-head,
+  .chart-title{
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .panel-title div[style*="display:flex"]{
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .panel-title div[style*="display:flex"] > *{
+    flex: 1 1 auto;
+  }
+
+  .chart-card{
+    min-height: 280px;
+  }
+
+  .chart-body{
+    padding: 14px;
+    height: 240px;
+  }
+
+  .event{
+    gap: 14px;
+    padding: 14px 16px;
+  }
+
+  .event:not(:last-child)::after{
+    left: 21px;
+  }
+
+  .timeline-head{
+    align-items: flex-start;
+    padding: 0;
+  }
+
+  .badges{
+    flex-wrap: wrap;
+  }
+
+  .cp-top,
+  .bh{
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .check{
+    gap: 10px;
+  }
+
+  .list .item,
+  .cp-item,
+  .box,
+  .hero{
+    padding: 14px;
+  }
+
+  #eobList,
+  #immList,
+  #debug,
+  .kv{
+    max-width: 100%;
+    overflow-x: auto;
+  }
 }
