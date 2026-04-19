@@ -134,19 +134,16 @@ pre,
 
 @media (max-width: 768px) {
   .topbar {
-    flex-direction: column;
-    align-items: stretch;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
     gap: 8px;
   }
 
-  .brand,
-  .top-actions,
-  .pill,
-  .btn{
-    width: 100%;
-  }
+  .brand{ width: auto; }
 
   .tabs{
+    grid-column: 1 / -1;
     width: 100%;
     min-height: 0;
     max-height: none;
@@ -169,11 +166,37 @@ pre,
   }
 
   .top-actions {
-    justify-content: flex-start;
+    width: auto;
+    justify-content: flex-end;
+    gap: 6px;
+    flex-wrap: nowrap;
+    align-self: start;
   }
 
   .summary-grid{
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pill{
+    width: auto;
+    min-width: 0;
+    padding: 8px 10px;
+    gap: 6px;
+    font-size: 12px;
+  }
+
+  .pill code{
+    max-width: 88px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .btn{
+    width: auto;
+    padding: 8px 12px;
+    font-size: 12px;
+    box-shadow: 0 8px 18px rgba(37,99,235,.14);
   }
 }
 .card{
@@ -995,6 +1018,16 @@ details.more summary {
     min-width: 0;
   }
 
+  .topbar{
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .top-actions{
+    width: 100%;
+    justify-content: space-between;
+  }
+
   .brand-badge{
     width: 40px;
     height: 40px;
@@ -1021,6 +1054,12 @@ details.more summary {
   .btn,
   .pill{
     justify-content: center;
+  }
+
+  .pill,
+  .btn{
+    width: auto;
+    flex: 1 1 auto;
   }
 
   .summary-grid,
