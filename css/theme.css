@@ -177,8 +177,6 @@ pre,
     pointer-events: none;
   }
 
-  .topbar:hover .tabs,
-  .topbar:focus-within .tabs,
   .tabs:hover,
   .tabs:focus-within{
     width: 100%;
@@ -195,8 +193,6 @@ pre,
     pointer-events: none;
   }
 
-  .topbar:hover .tab,
-  .topbar:focus-within .tab,
   .tabs:hover .tab,
   .tabs:focus-within .tab{
     opacity: 1;
